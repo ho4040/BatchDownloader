@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:WindowedApplication xmlns:fx="http://ns.adobe.com/mxml/2009" 
+					   xmlns:s="library://ns.adobe.com/flex/spark" 
+					   xmlns:mx="library://ns.adobe.com/flex/mx">
+	
+	<fx:Script>
+		<![CDATA[
+			import mx.collections.ArrayCollection;
+			import mx.utils.ObjectProxy;
+			import mx.utils.StringUtil;
+			
+			private var _targetDir:File;
+			
+			[Bindable]
+			private var _reqList:ArrayCollection = new ArrayCollection([]);
+			
+			protected function onClickPaste(event:MouseEvent):void
+			{
+				var text:String = Clipboard.generalClipboard.getData(ClipboardFormats.TEXT_FORMAT) as String;
+				var lines:Array = StringUtil.trim(text).split("\n");
+				_reqList.source = _reqList.source.concat( lines.map(function(e:String, i:int, array:Array):Object{
+					var data:Object = {
+						url: StringUtil.trim(e), 
+						state: "wait"
+					};
+					data.urlLoader = new CustomURLLoader(data);
+					return new ObjectProxy(data); 
+				}));
+			}
+			
+			protected function onClickClearList(event:MouseEvent):void
+			{
+				_reqList.removeAll();
+			}
+			
+			
+			protected function onClickStartDownload(event:MouseEvent):void
+			{
+				var f:File = new File();
+				f.addEventListener(Event.SELECT, function( e:Event):void{
+					_targetDir = f;
+					downloadNext();
+				});
+				f.browseForDirectory("Save path select");
+			}
+			
+			private function downloadNext():void{
+				
+				var waitingList:Array = _reqList.source.filter(function( e:Object, index:int, arr:Array):Object{
+					return e.state == "wait";
+				});
+				
+				if(waitingList.length > 0){
+					this.status = "Downloading.. "+ waitingList.length + " / " + _reqList.length + "(" + Math.floor((waitingList.length /_reqList.length)*100) + "%)";	
+					var item:ObjectProxy = waitingList[0] as ObjectProxy;
+					var urlLoader:URLLoader = item.urlLoader as URLLoader;
+					
+					urlLoader.addEventListener(ProgressEvent.PROGRESS, function( pe:ProgressEvent ):void{
+						var percent:int = (pe.bytesTotal / pe.bytesLoaded)*100;
+						item.state = "download "+percent+"%";
+					});
+					
+					urlLoader.addEventListener(Event.COMPLETE, function ( e:Event ):void {
+						
+						//save(fileName, e.currentTarget as URLLoader);
+						item.state = "done";
+						
+						var urlLoader:CustomURLLoader = e.currentTarget as CustomURLLoader;
+						var url:String = urlLoader.userData.url;
+						var fs:FileStream = new FileStream();
+						var tokens:Array = url.split("/");
+						var fileName:String = tokens.pop();
+						var file:File =_targetDir.resolvePath(fileName);
+						fs.open( file, FileMode.WRITE );
+						fs.writeBytes( urlLoader.data as ByteArray );
+						fs.close();
+						
+						downloadNext();
+					});
+					urlLoader.dataFormat = URLLoaderDataFormat.BINARY;
+					urlLoader.load( new URLRequest(item.url) );
+				}
+				else{
+					this.status = "Complete";
+				}
+				
+				
+			}
+		
+			
+			protected function onClickRemoveFinishedItem(event:MouseEvent):void
+			{
+				_reqList.source = _reqList.source.filter(function(e:Object, index:int, array:Array):Object{
+					return e.state != "done"
+				});
+			}
+			
+		]]>
+	</fx:Script>
+	
+
+	<s:VGroup width="100%" height="100%" paddingTop="5" paddingLeft="5" paddingRight="5" paddingBottom="5">
+		
+		<s:HGroup bottom="0" width="100%">
+			<s:Button label="Paste URLs" click="onClickPaste(event)"/>
+			<s:Button label="Clear" click="onClickClearList(event)"/>
+			<s:Spacer width="100%"/>
+			<s:Button label="Start Download" click="onClickStartDownload(event)"/>	
+			<s:Button label="Remove finished item" click="onClickRemoveFinishedItem(event)"/>
+		</s:HGroup>
+		
+		<s:DataGrid width="100%" height="100%" dataProvider="{_reqList}" selectionMode="none">
+			<s:columns>
+				<s:ArrayList>
+					<s:GridColumn headerText="State" width="100" dataField="state" sortable="false" />
+					<s:GridColumn headerText="URL" dataField="url" sortable="false" />
+				</s:ArrayList>
+			</s:columns>
+		</s:DataGrid>
+	</s:VGroup>
+	 
+	
+</s:WindowedApplication>
